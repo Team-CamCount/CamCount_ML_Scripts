@@ -1,5 +1,9 @@
 # Yolov5 + Deep Sort with PyTorch
 
+## Note to self: take a look at this repo "https://github.com/mikel-brostrom/yolov8_tracking"
+
+
+
 
 
 
