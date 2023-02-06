@@ -1,2 +1,3 @@
-# ML_scripts
-This repo contains all ML related scripts - Vincenzo
+# Pose Estimation Model
+
+Used in ED1 demo
