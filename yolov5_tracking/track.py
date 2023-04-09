@@ -1,3 +1,47 @@
+# python track.py --source videos/library.MOV --yolo_model yolov5/weights/crowdhuman_yolov5m.pt --classes 0
+
+# webserver stream: http://172.20.10.14:81/stream
+
+# firebase imports
+
+import firebase_admin as fa
+from firebase_admin import credentials 
+from firebase_admin import db
+
+import datetime
+
+now = datetime.datetime.now()
+
+print("Current date and time : ")
+print(now.strftime("%Y-%m-%d %H:%M:%S"))
+
+dayOfWeek = now.strftime("%A")
+print("Day of week:", dayOfWeek)
+
+# current_date = "2023-04-01"
+current_date = now.strftime('%Y-%m-%d')
+
+cred = credentials.Certificate('firebase_sdk.json')
+fa.initialize_app(cred, {
+    'databaseURL': 'https://group-11-fall2022-spring2023-default-rtdb.firebaseio.com/'
+})
+
+cameras_ref = db.reference('root/cameras')
+date_ref = db.reference('root/cameras/cam0/date')
+count_ref = db.reference('root/cameras/cam0/count')
+db_date = date_ref.get()
+
+# if the database date is different than the current date, the count will be reset to 0
+# and the database date will be updated to reflect the current date
+if db_date != current_date:
+    print(f"Last date of use: {db_date} \n Current date: {current_date}")
+    cameras_ref.update({
+        "cam0/count": 0,
+        "cam0/date" : current_date
+    })
+    print("Resetting Count to 0")
+
+
 # limit the number of cpus used by high performance libraries
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -32,19 +76,43 @@ from deep_sort.deep_sort import DeepSort
 
 import numpy as np
 
+# TRACK BARS - Vincenzo
+
+def nothing(*_,**__):
+    pass
+
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 deepsort root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
-count = 0
-data = []
+
+in_count = 0
+out_count = 0
+net_count = 0
+
+about_to_enter = []
+about_to_exit = []
+
+in_data = []
+out_data = []
+
 def detect(opt):
     out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok= \
         opt.output, opt.source, opt.yolo_model, opt.deep_sort_model, opt.show_vid, opt.save_vid, \
         opt.save_txt, opt.imgsz, opt.evaluate, opt.half, opt.project, opt.name, opt.exist_ok
     webcam = source == '0' or source.startswith(
         'rtsp') or source.startswith('http') or source.endswith('.txt')
+    
+    # Manually resets the DB count to 0 if reset_count argument is active
+    if opt.reset_count == True:
+        cameras_ref.update({
+        "cam0/count": 0
+        })
+        print("Reset Count flag active, Resetting Count to 0")
+
+    init_count = count_ref.get()
 
     # initialize deepsort
     cfg = get_config()
@@ -109,7 +177,34 @@ def detect(opt):
     if pt and device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
+
+    # create a window named "Tracker" to hold trackbars to adjust the position of the thresholding lines
+    cv2.namedWindow("Tracker")
+    cv2.namedWindow("Tracker", cv2.WINDOW_NORMAL)
+    # cv2.resizeWindow("Tracker", 960, 540)
+
+    cv2.namedWindow("Count")
+    count_img = np.zeros((400, 400, 3), np.uint8)
+    
+    # create four trackbars to adjust the y min and max values for the thresholding lines
+    cv2.createTrackbar("in_ymax", "Tracker", 465, 1080, nothing)
+    cv2.createTrackbar("in_ymin", "Tracker", 10, 1080, nothing)
+
+    cv2.createTrackbar("out_ymax", "Tracker", 465, 1080, nothing)
+    cv2.createTrackbar("out_ymin", "Tracker", 10, 1080, nothing)
+
+    cv2.createTrackbar("in_x", "Tracker", 250, 1080, nothing)
+    cv2.createTrackbar("out_x", "Tracker", 300, 1080, nothing)
+    
     for frame_idx, (path, img, im0s, vid_cap, s) in enumerate(dataset):
+        # get the current values of the trackbars
+        in_ymax = cv2.getTrackbarPos("in_ymax", "Tracker")
+        in_ymin = cv2.getTrackbarPos("in_ymin", "Tracker")
+        out_ymax = cv2.getTrackbarPos("out_ymax", "Tracker")
+        out_ymin = cv2.getTrackbarPos("out_ymin", "Tracker")
+        in_x = cv2.getTrackbarPos("in_x", "Tracker")
+        out_x = cv2.getTrackbarPos("out_x", "Tracker")
+
         t1 = time_sync()
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -172,7 +267,7 @@ def detect(opt):
                         id = output[4]
                         cls = output[5]
                         #count
-                        count_obj(bboxes,w,h,id)
+                        count_obj(bboxes,w,h,id,in_ymax,in_ymin, out_ymax, out_ymin, in_x, out_x)
                         c = int(cls)  # integer class
                         label = f'{id} {names[c]} {conf:.2f}'
                         annotator.box_label(bboxes, label, color=get_color(id))
@@ -197,18 +292,40 @@ def detect(opt):
             # Stream results
             im0 = annotator.result()
             if show_vid:
-                global count
-                color=(0,255,0)
-                start_point = (w-350, 0)
-                end_point = (w-350, h)
-                # cv2.line(im0, start_point, end_point, color, thickness=2)
+                global in_count, out_count
+                net_count = init_count + (in_count-out_count)
+                in_color=(0,255,0)
+
+                in_start_point = (w-in_x, h - in_ymin)
+                in_end_point = (w-in_x, h - in_ymax)
+
+                out_color=(0,0,255)
+
+                out_start_point = (w-out_x, h - out_ymin)
+                out_end_point = (w-out_x, h - out_ymax)
+
+                net_color=(255,0,0)
+                
+                cv2.line(im0, in_start_point, in_end_point, in_color, thickness=2)
+                cv2.line(im0, out_start_point, out_end_point, out_color, thickness=2)
                 thickness = 3
-                org = (150, 150)
+                in_text_placement = (150, 150)
+                out_text_placement = (150, 250)
+                net_text_placement = (150, 350)
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                fontScale = 3
-                # cv2.putText(im0, str(count), org, font, 
-                #    fontScale, color, thickness, cv2.LINE_AA)
-                cv2.imshow(str(p), im0)
+                fontScale = 2
+                count_img = np.zeros((400, 400, 3), np.uint8)
+                cv2.putText(count_img, "In: " + str(in_count), in_text_placement, font, 
+                    fontScale, in_color, thickness, cv2.LINE_AA)
+                cv2.putText(count_img, "Out: " + str(out_count), out_text_placement, font, 
+                    fontScale, out_color, thickness, cv2.LINE_AA)
+                cv2.putText(count_img, "Net: " + str(net_count), net_text_placement, font, 
+                    fontScale, net_color, thickness, cv2.LINE_AA)
+                cv2.imshow("Frame", im0)
+                cv2.imshow("Count", count_img)
+                cameras_ref.update({
+                    "cam0/count": net_count
+                })
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
 
@@ -227,6 +344,7 @@ def detect(opt):
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                 vid_writer.write(im0)
+        
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
@@ -237,13 +355,39 @@ def detect(opt):
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
 
-def count_obj(box,w,h,id):
-    global count,data
+# this function counts the number of people entering and exiting the library using thresholding lines
+def count_obj(box, w, h, id, in_ymax, in_ymin, out_ymax, out_ymin, in_x, out_x):
+    # use global variables to store the counts and the ids of the people
+    global in_count, out_count, net_count ,in_data, out_data, about_to_enter, about_to_exit
+    
+    # calculate the center coordinates of the bounding box
     center_coordinates = (int(box[0]+(box[2]-box[0])/2) , int(box[1]+(box[3]-box[1])/2))
-    if (int(box[0]+(box[2]-box[0])/2) > (w -350)):
-        if  id not in data:
-            count += 1
-            data.append(id)
+    
+    # check if the center coordinates are within the in threshold line
+    if (center_coordinates[0] > (w -in_x) and (h - in_ymax) < center_coordinates[1] < (h - in_ymin)):
+        # add the id to the list of people who are about to enter
+        if  id not in about_to_enter:
+            about_to_enter.append(id)
+
+    # check if the center coordinates are past the in threshold line
+    if (center_coordinates[0] < (w -in_x)):
+        # increment the in count and add the id to the list of people who have entered
+        if  id in about_to_enter and id not in in_data:
+            in_count += 1
+            in_data.append(id)
+
+    # check if the center coordinates are within the out threshold line
+    if (center_coordinates[0] < (w -out_x) and (h - out_ymax) < center_coordinates[1] < (h - out_ymin)):
+        # add the id to the list of people who are about to exit
+        if  id not in about_to_exit:
+            about_to_exit.append(id)
+
+    # check if the center coordinates are past the out threshold line
+    if (center_coordinates[0] > (w -out_x)):
+        # increment the out count and add the id to the list of people who have exited
+        if  id in about_to_exit and id not in out_data:
+            out_count += 1
+            out_data.append(id)
 
 def get_color(number):
     h = int(180.0 * pow(number, 0.5) % 180)
@@ -256,6 +400,7 @@ def get_color(number):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--reset_count', type=bool, default=False, help='set True to reset the count to 0 at the start of the program')
     parser.add_argument('--yolo_model', nargs='+', type=str, default='yolov5n.pt', help='model.pt path(s)')
     parser.add_argument('--deep_sort_model', type=str, default='osnet_x0_25')
     parser.add_argument('--source', type=str, default='videos/Traffic.mp4', help='source')  # file/folder, 0 for webcam
@@ -283,6 +428,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
+
 
     with torch.no_grad():
         detect(opt)
