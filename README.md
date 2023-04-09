@@ -1,5 +1,6 @@
 # CamCount_ML_Scripts
-AUTHOR(S): VINCENZO MACRI // This repo contains all ML related scripts for the CamCount project.
+### AUTHOR: Vincenzo Macri
+@vmacri7
 
 ### pose_model_old
 * old pose estimation model used in earlier demos (ed1)
