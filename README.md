@@ -2,6 +2,8 @@
 ### AUTHOR: Vincenzo Macri
 ### Includes contributions from: Nikita Ostro, Kristian Murphy and Galen Holland
 
+### final_scripts
+* completed final system
 
 ### pose_model_old
 * old pose estimation model used in earlier demos (ed1)
