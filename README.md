@@ -1,6 +1,7 @@
 # CamCount_ML_Scripts
 ### AUTHOR: Vincenzo Macri
-@vmacri7
+### Includes contributions from: Nikita Ostro, Kristian Murphy and Galen Holland
+
 
 ### pose_model_old
 * old pose estimation model used in earlier demos (ed1)
