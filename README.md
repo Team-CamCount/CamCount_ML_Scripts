@@ -29,13 +29,9 @@ pip install -r requirements.txt
 #### Running Project
 1. First run the tracking script by running the following command in the home directory
 ```bash
-python track.py --source frames/ --yolo_model yolov5/weights/crowdhuman_yolov5m.pt --classes 0
+python combined.py --yolo_model yolov5/weights/crowdhuman_yolov5m.pt --classes 0 --half --reset_count True
 ```
-2. Next open a second anaconda prompt and navigate to the /server folder and run the server.py script
-```bash
-python server.py
-```
-3. Power on the ESP32, once it connects to the server.py script a message will be sent to the screen ensuring the connection and frames will start comming in and being interpreted by the tracking script
+2. Power on the ESP32, once it connects to the server.py script a message will be sent to the screen ensuring the connection and frames will start comming in and being interpreted by the tracking script
 
 ### Credits
 We thank the author of the following [repo](https://github.com/mikel-brostrom/yolov8_tracking) which we took insperation from, and the many talented developers who developed the building blocks which made it possible
