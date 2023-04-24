@@ -13,7 +13,7 @@
 
 ### How to run
 #### Environment Setup
-1. Download [this](https://drive.google.com/file/d/1b7Ju3vAtfMuGh9zdDMigS71z0I4d-k2S/view?usp=share_link) zip file and unzip it
+1. Download [this](https://drive.google.com/file/d/1292jtIwJK7QjCxXd8JIW_wczTqqaTZfk/view?usp=share_link) zip file and unzip it
 2. Download Anaconda from [here](https://www.anaconda.com/) if you dont have it already to help with python version control
 3. Open the Anaconda terminal and create a new python environment using the following command
 ```bash
